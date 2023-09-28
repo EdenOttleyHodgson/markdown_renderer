@@ -1,12 +1,19 @@
 use leptos::*;
-use regex::Regex;
+use regex::{Match, Matches, Regex};
 use std::path::PathBuf;
-const ORDERED_LIST_REGEX: &str = r"\A\h*[0-9]*\./gm";
-const CODE_BLOCK_REGEX: &str = r"\A```";
-const HEADING_REGEX: &str = r"\A#{1,6}\h";
-const BLOCKQUOTE_REGEX: &str = r"\A>+.*/gm";
-const UNORDERED_LIST_REGEX: &str = r"\A\h*[*\-+]";
 
+use lazy_static::lazy_static;
+lazy_static! {
+    static ref ORDERED_LIST_REGEX: Regex = Regex::new(r"\A\h*[0-9]*\./gm").unwrap();
+    static ref CODE_BLOCK_REGEX: Regex = Regex::new(r"\A```").unwrap();
+    static ref HEADING_REGEX: Regex = Regex::new(r"\A#{1,6}\h").unwrap();
+    static ref BLOCKQUOTE_REGEX: Regex = Regex::new(r"\A>+.*/gm").unwrap();
+    static ref UNORDERED_LIST_REGEX: Regex = Regex::new(r"\A\h*[*\-+]").unwrap();
+    static ref HORIZONTAL_RULE_REGEX: Regex = Regex::new(r"^-{3,}$").unwrap();
+    static ref IMAGE_REGEX: Regex = Regex::new(r"!\[.*\]\(.*\)").unwrap();
+    static ref LINK_REGEX: Regex = Regex::new(r"\[.*\]\(.*\)").unwrap();
+    static ref WORD_SPLIT_REGEX: Regex = Regex::new(r"\b").unwrap();
+}
 #[component]
 pub fn text_line(cx: Scope, content: String) -> impl IntoView {
     //split the content based on inline formats (backtick, asterisk, underscore)
@@ -18,13 +25,20 @@ pub fn text_line(cx: Scope, content: String) -> impl IntoView {
     }
 }
 
-enum MarkdownLine {
+enum LineOptions {
     Heading(usize),
     OrderedListLine(usize),
     UnorderedListLine(usize),
     Blockquote(usize),
+    BlockquoteHeading(usize, usize),
     Code,
     HorizontalRule,
+}
+
+impl LineOptions {
+    fn new(from_str: &str) -> LineOptions {
+        LineOptions::Heading(1)
+    }
 }
 
 enum UnformattedMarkdownBlock {
@@ -46,9 +60,43 @@ impl FormattedMarkdownBlock {
         use UnformattedMarkdownBlock as UMB;
         match block {
             UMB::Code(content) => FMB::Code(content),
-            UMB::OrderedList(content) => {}
-            UMB::UnorderedList(content) => todo!(),
-            UMB::Regular(content) => {}
+            UMB::OrderedList(content) => {
+                let new_block_sections: Vec<TextImage> = Vec::new();
+
+                FMB::Regular(new_block_sections)
+            }
+            UMB::UnorderedList(content) => {
+                let new_block_sections: Vec<TextImage> = Vec::new();
+                FMB::Regular(new_block_sections)
+            }
+            UMB::Regular(content) => {
+                let mut new_block_sections: Vec<TextImage> = Vec::new();
+                for line in content.lines() {
+                    //check line options
+                    if HORIZONTAL_RULE_REGEX.is_match(line.trim()) {
+                        new_block_sections.push(TextImage::HorizontalRule);
+                    } else {
+                        let line_options = LineOptions::new(&line);
+                        //type info included to inform rust analyzer.
+                        let image_iter = IMAGE_REGEX.find_iter(&line).map(|m| m.as_str());
+                        let imageless_sections = IMAGE_REGEX.split(&line);
+                        for imageless_section in imageless_sections {
+                            let link_iter = LINK_REGEX.find_iter(&line).map(|m| m.as_str());
+                            let linkless_sections = LINK_REGEX.split(&imageless_section);
+                            for linkless_section in linkless_sections {
+                                let words = WORD_SPLIT_REGEX.split(linkless_section);
+                                let mut current_section: Vec<&str> = Vec::new();
+                                let mut current_delimiter = "";
+                                for word in words {}
+                            }
+                        }
+                        //get all the start and end indexes for images.
+                        // split the line based on those.
+                        // format each section.
+                    }
+                }
+                FMB::Regular(new_block_sections)
+            }
         }
     }
 }
@@ -57,27 +105,35 @@ enum MarkdownModifers {
     Bold,
     BoldItalic,
     Code,
-    Link(String),
+    Italic,
+    Normal,
 }
 
 enum TextImage {
     Text(TextData),
     Image(ImageData),
+    Link(LinkData),
+    HorizontalRule,
 }
 
 impl TextImage {
-    fn from_str(from_str: &str) -> TextImage {}
+    fn new(from_str: &str, line_options: LineOptions) -> TextImage {}
 }
 
 struct TextData {
     content: String,
-    line_options: MarkdownLine,
+    line_options: LineOptions,
     text_options: MarkdownModifers,
 }
 
 struct ImageData {
     alt_text: String,
     image_url: PathBuf,
+}
+
+struct LinkData {
+    url: PathBuf,
+    text: String,
 }
 
 enum BlockFlags {
@@ -106,17 +162,12 @@ fn split_markdown_into_blocks(markdown: String) -> Vec<UnformattedMarkdownBlock>
 
     let mut block_flag = BlockFlags::Regular;
 
-    //safe to unwrap because the regex strings are constant.
-    let code_block_regex = Regex::new(CODE_BLOCK_REGEX).unwrap();
-    let unordered_list_regex = Regex::new(UNORDERED_LIST_REGEX).unwrap();
-    let ordered_list_regex = Regex::new(ORDERED_LIST_REGEX).unwrap();
-
     let mut current_block: Vec<&str> = Vec::new();
 
     for line in lines {
         match block_flag {
             BlockFlags::CodeBlock => {
-                if code_block_regex.is_match(&line) {
+                if CODE_BLOCK_REGEX.is_match(&line) {
                     blocks.push(UnformattedMarkdownBlock::Code(current_block.concat()));
                     current_block = Vec::new();
                     block_flag = BlockFlags::Regular
@@ -125,7 +176,7 @@ fn split_markdown_into_blocks(markdown: String) -> Vec<UnformattedMarkdownBlock>
                 }
             }
             BlockFlags::Unordered => {
-                if unordered_list_regex.is_match(&line) {
+                if UNORDERED_LIST_REGEX.is_match(&line) {
                     current_block.push(&line)
                 } else {
                     blocks.push(UnformattedMarkdownBlock::UnorderedList(
@@ -136,7 +187,7 @@ fn split_markdown_into_blocks(markdown: String) -> Vec<UnformattedMarkdownBlock>
                 }
             }
             BlockFlags::Ordered => {
-                if ordered_list_regex.is_match(&line) {
+                if ORDERED_LIST_REGEX.is_match(&line) {
                     current_block.push(&line)
                 } else {
                     blocks.push(UnformattedMarkdownBlock::OrderedList(
@@ -147,15 +198,15 @@ fn split_markdown_into_blocks(markdown: String) -> Vec<UnformattedMarkdownBlock>
                 }
             }
             BlockFlags::Regular => {
-                if ordered_list_regex.is_match(&line) {
+                if ORDERED_LIST_REGEX.is_match(&line) {
                     blocks.push(UnformattedMarkdownBlock::Regular(current_block.concat()));
                     current_block = Vec::new();
                     block_flag = BlockFlags::CodeBlock;
-                } else if unordered_list_regex.is_match(&line) {
+                } else if UNORDERED_LIST_REGEX.is_match(&line) {
                     blocks.push(UnformattedMarkdownBlock::Regular(current_block.concat()));
                     current_block = Vec::new();
                     block_flag = BlockFlags::Unordered;
-                } else if code_block_regex.is_match(&line) {
+                } else if CODE_BLOCK_REGEX.is_match(&line) {
                     blocks.push(UnformattedMarkdownBlock::Regular(current_block.concat()));
                     current_block = Vec::new();
                     block_flag = BlockFlags::CodeBlock;

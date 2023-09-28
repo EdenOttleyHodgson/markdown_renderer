@@ -12,6 +12,7 @@ wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 regex = "1.9.5"
+lazy_static = "1.4.0"
 
 [workspace]
 members = ["src-tauri"]
